@@ -1,71 +1,71 @@
 name: CI
- 
+
 on: [push, pull_request]
- 
+
 jobs:
   build:
     runs-on: ubuntu-latest
- 
+
+    env:
+      GIT_SHA: ${{ github.sha }}
+
     steps:
-      - name: 00. Checkout Code
-        uses: actions/checkout@v5
- 
-      - name: 0. Set up Java
-        uses: actions/setup-java@v5
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
         with:
-          distribution: 'temurin'
+          distribution: temurin
           java-version: '22'
-          cache: 'maven'
- 
-      - name: 0. Install Pact CLI
+          cache: maven
+
+      - name: Install Pact CLI
         run: |
           curl -fsSL https://github.com/pact-foundation/pact-ruby-standalone/releases/download/v2.4.5/pact-2.4.5-linux-x86_64.tar.gz | tar xz -C $HOME
           echo "$HOME/pact/bin" >> $GITHUB_PATH
- 
-      - name: 1. Start Pact Broker
+
+      - name: Start Pact Broker
         working-directory: WiremockPact
         run: |
           docker compose -f src/test/java/com/ust/sdet/docker/docker-compose-pact-broker.yml down -v
           docker compose -f src/test/java/com/ust/sdet/docker/docker-compose-pact-broker.yml up -d --wait
- 
-      - name: 2. Run Consumer Tests & Publish Contracts
+
+      - name: Run Consumer Tests
         working-directory: WiremockPact
-        run: |
-          mvn -Dtest=PosOmsConsumerPactTest test
-     
-      - name: 3. Consumer Publish Contracts to the Borker
+        run: mvn -Dtest=PosOmsConsumerPactTest test
+
+      - name: Publish Contracts
         working-directory: WiremockPact
         run: |
           pact-broker publish target/pacts \
-            --consumer-app-version=${{ github.sha }} \
+            --consumer-app-version=$GIT_SHA \
             --branch=main \
             --broker-base-url=http://127.0.0.1:9292
-     
-      - name: 4. Run Provider Verification
+
+      - name: Run Provider Verification
         working-directory: WiremockPact
         run: |
           mvn -Dtest=OmsProviderVerification \
-              -Dgit.sha=${{ github.sha }} \
+              -Dgit.sha=$GIT_SHA \
               -Dpactbroker.host=127.0.0.1 \
               -Dpactbroker.port=9292 \
               test
- 
-      - name: 5. Record provider deployment to production
+
+      - name: Record Provider Deployment
         working-directory: WiremockPact
         run: |
           pact-broker record-deployment \
             --pacticipant oms-provider \
-            --version ${{ github.sha }} \
+            --version $GIT_SHA \
             --environment production \
             --broker-base-url http://127.0.0.1:9292
- 
-      - name: 6. Can I deploy
+
+      - name: Can I Deploy
         working-directory: WiremockPact
-        env:
-            CONTRACT_VERSION: ${{ github.sha }}
         run: |
           pact-broker can-i-deploy \
-          --pacticipant pos-consumer \
-          --version $CONTRACT_VERSION \
-          --to-environment production \
-          --broker-base-url http://127.0.0.1:9292
+            --pacticipant pos-consumer \
+            --version $GIT_SHA \
+            --to-environment production \
+            --broker-base-url http://127.0.0.1:9292
